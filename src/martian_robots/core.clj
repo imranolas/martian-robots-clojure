@@ -4,6 +4,11 @@
 
 (def robot {:x 0, :y 0, :heading \N})
 
+(def base-state
+  {:danger-zones #{} ;; Danger Will Robinson!
+   :robot robot
+   :grid {:x 0 :y 0}})
+
 (def displacements
   { "N"  (fn [x y] {:x x :y (inc y)})
     "E"  (fn [x y] {:x (inc x) :y y})
@@ -43,69 +48,48 @@
                 (< (kw robot) 0)))
    [:x :y]))
 
+
+(defn danger?
+  [{:keys [robot danger-zones] :as state} command]
+  (trace "danger" [robot command])
+  (boolean (danger-zones [robot command])))
+
 (defn validate-and-update-state [state next-robot command]
   (let [next-state (assoc state :robot next-robot)]
-    (if (trace "is-lost?" (is-lost? (trace "state" next-state)))
-      (->
-       state
-       (assoc-in [:robot :lost] true)
-       (update :danger-zones #(conj % [(state :robot) command])))
-      next-state)))
+    (cond
+      (danger? state command) state
+      (is-lost? next-state) (-> state
+                                (assoc-in [:robot :lost] true)
+                                (update :danger-zones #(conj % [(state :robot) command])))
+      :else next-state)))
 
 (defn exec-commands [state commands]
   (loop [[command & rest] commands
          {:keys [robot] :as prev-state} state]
     (let [next-robot ((moves (str command)) robot)
           next-state (validate-and-update-state prev-state next-robot command)]
-      (if (empty? rest)
+      (if (or (empty? rest) (get-in next-state [:robot :lost]))
           next-state
           (recur rest next-state)))))
 
-(def parse-commands
-  {#"(\d+)\s(\d+)" set-grid              ;; grid numbers
-   #"(\d+)\s(\w+)\s(N|E|S|W)" init-robot ;; init robot
-   #"([F|L|R]+)" exec-commands})         ;; command stream
+(defn apply-args [f state]
+  (fn [[first & args]] (apply (partial f state) args)))
 
-(def base-state
-  {:danger-zones #{} ;; Danger Will Robinson!
-   :robot robot
-   :grid {:x 0 :y 0}})
+(defn parse-commands [state s]
+  (condp re-matches s
+    #"(\d+)\s(\d+)" :>> (apply-args set-grid state)
+    #"(\d+)\s(\w+)\s(N|E|S|W)" :>> (apply-args init-robot state)
+    #"([F|L|R]+)" :>> (apply-args exec-commands state)
+    state))
 
 (defn stream-commands
   [state stream]
   (loop [curr-state state
          [cmd & rest] (clojure.string/split stream #"\n")]
-    (as-> parse-commands $
-          (map (fn [[regex f]] [(re-matches regex cmd) f]) $)
-          (filter (fn [[matches]] (not (nil? matches))) $)
-          (first $)
-          (let [[[first & args] f] $
-                next-state (apply (partial f curr-state) args)]
-            (if (empty? rest)
-                next-state
-                (recur next-state rest))))))
-
-
-; (stream-commands base-state "5 3
-; 1 1 E
-; RFRFRFRF")
-;
-(stream-commands base-state "5 3
-3 2 N
-FRRFLLFFRRFLL")
-
-
-
-
-; (stream-commands base-state "5 3
-; 1 1 E
-; RFRFRFRF
-;
-; 3 2 N
-; FRRFLLFFRRFLL
-;
-; 0 3 W
-; LLFFFLFLFL")
+     (let [next-state (trace cmd (parse-commands curr-state cmd))]
+      (if (empty? rest)
+          next-state
+          (recur next-state rest)))))
 
 (defn -main []
   (println "Hello world"))
