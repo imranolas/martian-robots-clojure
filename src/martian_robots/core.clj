@@ -86,10 +86,13 @@
   [state stream]
   (loop [curr-state state
          [cmd & rest] (clojure.string/split stream #"\n")]
-     (let [next-state (trace cmd (parse-commands curr-state cmd))]
+    (let [next-state (trace cmd (parse-commands curr-state cmd))]
       (if (empty? rest)
           next-state
           (recur next-state rest)))))
 
 (defn -main []
-  (println "Hello world"))
+  ; TODO Parse input args/file
+  ; TODO Collate and format output
+  ; TODO Test
+  (println "Martian Robots"))
